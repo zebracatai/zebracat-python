@@ -1,0 +1,72 @@
+name: release
+
+# Push a tag vX.Y.Z (equal to src/zebracat/_version.py) to publish that version to PyPI.
+#
+# PyPI Trusted Publishing: GitHub's OIDC token proves this workflow is the publisher, so no PyPI token is stored
+# anywhere. One-time setup on pypi.org (before the first release, as a "pending publisher"):
+#   Account -> Publishing -> Add a new pending publisher -> GitHub:
+#   PyPI project name "zebracat", owner "zebracatai", repository "zebracat-python",
+#   workflow "release.yml", environment "pypi".
+# And on GitHub: Settings -> Environments -> New environment "pypi" (optionally: required reviewers, tag rule v*).
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.9", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install -e '.[test]'
+      - run: python scripts/generate.py --check
+      - run: pytest -q
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Package version must match the tag
+        run: |
+          case "$GITHUB_REF_NAME" in v[0-9]*.[0-9]*.[0-9]*) ;; *) echo "not a release tag: $GITHUB_REF_NAME" >&2; exit 1 ;; esac
+          have="$(python -c "ns = {}; exec(open('src/zebracat/_version.py').read(), ns); print(ns['__version__'])")"
+          if [ "$have" != "${GITHUB_REF_NAME#v}" ]; then
+            echo "src/zebracat/_version.py is $have but the tag is $GITHUB_REF_NAME" >&2
+            exit 1
+          fi
+      - run: pip install build twine
+      - run: python -m build
+      - run: twine check --strict dist/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/zebracat/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
