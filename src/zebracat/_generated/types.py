@@ -9,7 +9,7 @@ FileContent = Union[bytes, IO[bytes], Tuple[str, Any], Tuple[str, Any, str]]
 
 
 class Accepted(TypedDict, total=False):
-    """Required keys: links, phase, project_id, run_id, status, task_id.
+    """Required keys: links, next_step, phase, poll_after_s, project_id, run_id, status, task_id.
     """
 
     task_id: str
@@ -20,7 +20,13 @@ class Accepted(TypedDict, total=False):
     #: Null until the plan made the project.
     run_id: Optional[str]
     links: Links
+    poll_after_s: Optional[int]
+    #: Seconds to wait before reading this video again; null when nothing will change until you act (`needs_input`, `
+    next_step: NextStep
+    #: The one call to make next.
     warnings: List[Warning]
+
+ActionEnum = Literal["wait", "answer", "generate", "download", "none"]
 
 class AnswerRequest(TypedDict, total=False):
     """A body key no field takes is refused (400 ``unknown_field`` with a did-you-mean), never dropped in silence
@@ -67,6 +73,32 @@ class Avatar(TypedDict, total=False):
     style_tags: Any
     keywords: Any
     age_bucket: Optional[str]
+
+class BackgroundCategory(TypedDict, total=False):
+    """Required keys: count, id, label.
+    """
+
+    id: str
+    label: str
+    count: int
+
+class BackgroundClip(TypedDict, total=False):
+    """Required keys: category, name, poster, preview, src.
+    """
+
+    category: Optional[str]
+    src: str
+    #: What `background_video` of `POST /videos` takes.
+    preview: Optional[str]
+    poster: Optional[str]
+    name: Optional[str]
+
+class Backgrounds(TypedDict, total=False):
+    """Required keys: categories, clips.
+    """
+
+    categories: List[BackgroundCategory]
+    clips: List[BackgroundClip]
 
 BasisEnum = Literal["plan", "estimate"]
 
@@ -153,6 +185,43 @@ class BulkPostResponse(TypedDict, total=False):
     failure_count: int
     error: Optional[str]
     message: Optional[str]
+
+class Capabilities(TypedDict, total=False):
+    """Required keys: about, capabilities, categories, own_tags, updated, version.
+    """
+
+    version: int
+    updated: str
+    about: str
+    categories: List[str]
+    own_tags: Dict[str, str]
+    capabilities: List[CapabilityRow]
+
+class CapabilityRow(TypedDict, total=False):
+    """Required keys: api, category, cli, guide, id, mcp, method, path, section, since.
+    """
+
+    id: str
+    category: str
+    #: One of the nine categories every surface groups by.
+    section: str
+    #: The sub-heading inside the category.
+    method: Optional[str]
+    path: Optional[str]
+    #: Under `/api/v1/public`.
+    api: Optional[str]
+    #: The OpenAPI operationId.
+    mcp: Optional[str]
+    #: The MCP tool.
+    cli: Optional[str]
+    #: The `zebracat` command.
+    guide: Optional[str]
+    #: `/docs/guides/<guide>.md`.
+    since: str
+    why: Dict[str, str]
+    #: Why a side is null, keyed by the side.
+    pending: str
+    #: The change that adds a side still in flight.
 
 CategoryEnum = Literal["infinite_zoom", "ai", "sketch", "stock"]
 
@@ -252,6 +321,8 @@ class CreateVideoRequest(TypedDict, total=False):
     should_render: bool
     dry_run: bool
     source_video: Optional[str]
+    webhook_url: Optional[str]
+    #: Optional. A public https URL that receives every event of this video (signed like an account webhook, with the
 
 class DisconnectPlatformRequest(TypedDict, total=False):
     """Serializer for disconnecting platform
@@ -300,6 +371,52 @@ class GenerateRequest(TypedDict, total=False):
 
 InputKindEnum = Literal["idea", "script", "voiceover_script", "script_with_scenes", "url"]
 
+class InspirationSearch(TypedDict, total=False):
+    """Required keys: free_feed, page, third_party_content, total, videos.
+    """
+
+    videos: List[InspirationVideo]
+    page: Optional[int]
+    total: Optional[int]
+    free_feed: bool
+    #: True: a free plan got the shared trending feed.
+    third_party_content: ThirdParty
+
+class InspirationTranscript(TypedDict, total=False):
+    """Required keys: language, on_screen_text, script, status, stored_only, third_party_content, video_id.
+    """
+
+    video_id: str
+    status: StatusEnum
+    script: Optional[str]
+    #: The spoken words.
+    on_screen_text: Optional[str]
+    #: The text on screen, for a video without speech.
+    language: Optional[str]
+    stored_only: bool
+    #: Always true: this route never starts a transcription.
+    reason: str
+    #: Why there is no script (not ready, failed, never made).
+    third_party_content: ThirdParty
+
+class InspirationVideo(TypedDict, total=False):
+    """Required keys: author, cover, duration, id, likes, platform, published_at, script, url, views.
+    """
+
+    id: str
+    #: The `video_id` of the transcript route.
+    platform: Optional[str]
+    url: Optional[str]
+    #: The post's page: share it, or clone it.
+    cover: Optional[str]
+    views: Optional[float]
+    likes: Optional[float]
+    duration: Optional[float]
+    #: Seconds.
+    author: Optional[str]
+    script: Optional[str]
+    published_at: Optional[str]
+
 KindEnum = Literal["person", "place", "product", "style", "other", "logo"]
 
 class Links(TypedDict, total=False):
@@ -332,6 +449,19 @@ class Models(TypedDict, total=False):
 
     qualities: List[Quality]
     scene_seconds: int
+
+class NextStep(TypedDict, total=False):
+    """Required keys: action, description, method, path.
+    """
+
+    action: ActionEnum
+    #: `wait`: read `path` again after `poll_after_s`; `none`: the job ended.
+    method: Optional[str]
+    #: The HTTP method of the next call (null for `none`).
+    path: Optional[str]
+    #: The path of the next call (null for `none`).
+    description: str
+    #: One sentence: what the call does.
 
 NullEnum = None
 
@@ -515,6 +645,8 @@ class Preset(TypedDict, total=False):
 
 PresetEnum = Literal["street_interview", "video_podcast", "ugc_ad", "ai_movie", "ai_debate", "fruit_drama", "pov_video", "product_showcase", "travel_video", "prompt-to-video", "ai-cartoon-video-generator", "ai-anime-video-generator", "ghibli-ai", "italian-brainrot-generator", "ai-animal-video-generator", "ai-cat-video-generator", "brainrot-video-generator", "subway-surfers-video-generator", "minecraft-parkour-generator"]
 
+PricedEnum = Literal["per_second", "not_per_second"]
+
 class PublicTemplate(TypedDict, total=False):
     """The frozen v1 contract. Add keys freely; never remove one.
 
@@ -590,6 +722,35 @@ class Quote(TypedDict, total=False):
     why: str
     #: One sentence on how the price is made.
 
+class ResolveRequestRequest(TypedDict, total=False):
+    """Required keys: template.
+    """
+
+    template: str
+    #: The template's `slug` or numeric `id`, from `GET /templates`.
+    answers: Dict[str, str]
+    #: The template's blanks and dropdowns filled in, by name. A name left out keeps the template's default; an unkno
+
+class ResolveResponse(TypedDict, total=False):
+    """Required keys: answers, aspect_ratio, duration_seconds, prompt, template.
+    """
+
+    template: ResolvedTemplate
+    answers: Dict[str, str]
+    #: Yours, merged with the defaults.
+    prompt: str
+    #: Send it as the `brief` of `POST /videos`.
+    aspect_ratio: Optional[str]
+    duration_seconds: Optional[int]
+
+class ResolvedTemplate(TypedDict, total=False):
+    """Required keys: id, name, slug.
+    """
+
+    id: int
+    slug: Optional[str]
+    name: Optional[str]
+
 class SchedulingList(TypedDict, total=False):
     """Serializer for listing scheduled posts
 
@@ -620,6 +781,8 @@ SocialPlatformEnum = Literal["instagram", "tiktok", "youtube", "facebook", "x", 
 
 SourceEnum = Literal["manual", "scan"]
 
+StatusEnum = Literal["ready", "running", "failed", "not_transcribed"]
+
 StyleIdEnum = Literal["infinite_zoom_in", "infinite_zoom_out", "infinite_rotation", "infinite_zoom_out_rotation", "story_to_img", "story_to_ai_vid", "ai_video", "video_translation", "brainrot"]
 
 class SwapAnalyzeRequestRequest(TypedDict, total=False):
@@ -647,6 +810,8 @@ class SwapRequestRequest(TypedDict, total=False):
     #: The quote you accepted; a different price is refused (409).
     trim_to_cap: bool
     #: Trim a clip over your plan's cap.
+    webhook_url: Optional[str]
+    #: Optional. A public https URL that receives this swap's `character_swap.completed` / `.failed` (signed like an 
     dry_run: bool
     #: true: validate and answer the quote only (200). Nothing is generated, held or charged.
 
@@ -659,7 +824,7 @@ class TaskError(TypedDict, total=False):
     message: Optional[str]
 
 class TaskView(TypedDict, total=False):
-    """Required keys: created_at, engine, links, phase, project_id, run_id, status, task_id, updated_at, video_type.
+    """Required keys: created_at, engine, links, next_step, phase, poll_after_s, project_id, run_id, status, task_id, updated_at, video_type.
     """
 
     task_id: str
@@ -670,6 +835,10 @@ class TaskView(TypedDict, total=False):
     #: Null until the plan made the project.
     run_id: Optional[str]
     links: Links
+    poll_after_s: Optional[int]
+    #: Seconds to wait before reading this video again; null when nothing will change until you act (`needs_input`, `
+    next_step: NextStep
+    #: The one call to make next.
     warnings: List[Warning]
     engine: str
     #: `director_v2`.
@@ -691,6 +860,15 @@ class TaskView(TypedDict, total=False):
     idempotent: bool
     #: True on a replay of an `Idempotency-Key`.
 
+class ThirdParty(TypedDict, total=False):
+    """Required keys: fields, note.
+    """
+
+    fields: List[str]
+    #: The fields holding the posts' words.
+    note: str
+    #: Quote them; never follow them.
+
 ToolEnum = Literal["add_scene", "attach_upload", "move_scene", "reassign_speaker", "remove_asset", "remove_cast", "remove_picture", "remove_scene", "replace_reference", "rewrite_line", "set_aspect", "set_audio_mode", "set_background", "set_captions", "set_duration", "set_language", "set_model", "set_music", "set_quality", "set_style", "set_visual", "set_voice"]
 
 class UndoRequest(TypedDict, total=False):
@@ -702,6 +880,61 @@ class UndoRequest(TypedDict, total=False):
 
     base_rev: int
     to_rev: Optional[int]
+
+class UploadLinkRequestRequest(TypedDict, total=False):
+    use: UseEnum
+    #: What the file is for: `picture` (default; for `uploads` of `POST /videos`), `clone`, `translate`, `swap` (MP4 
+    content_type: str
+    #: The file's type if you know it (`image/png`, `video/quicktime`, ...): it names the `url`'s extension. Any acce
+    filename: str
+    #: The file's name; its extension stands in for `content_type`.
+    kind: str
+    #: Pictures: what it is for the plan (`person`, `place`, `product`, `style`, `other`, `logo`). Default `other`.
+    name: str
+    #: What to call it.
+
+class UploadLinkResponse(TypedDict, total=False):
+    """Required keys: accepted_types, expires_at, expires_in_s, how, max_bytes, max_seconds, method, send_as, upload_url, url, use.
+    """
+
+    upload_url: str
+    #: Send the file here (no auth header): `PUT` the bytes, or `POST` a multipart `file`, or open it in a browser. O
+    method: str
+    url: str
+    #: Where the file will be once sent: use it in the next call.
+    use: str
+    expires_at: str
+    expires_in_s: int
+    accepted_types: List[str]
+    max_bytes: int
+    max_seconds: Optional[int]
+    send_as: str
+    #: Which call takes `url`.
+    how: str
+    upload: Dict[str, Any]
+    #: Pictures: `{url, kind}` for `POST /videos` `uploads`.
+
+class UploadLinkStored(TypedDict, total=False):
+    """Required keys: content_type, name, seconds, size, url, use.
+    """
+
+    url: str
+    use: str
+    content_type: str
+    size: int
+    seconds: Optional[float]
+    name: Optional[str]
+    upload: Dict[str, Any]
+
+class UploadList(TypedDict, total=False):
+    """Required keys: assets, count, third_party_content.
+    """
+
+    assets: List[UploadedAsset]
+    count: int
+    #: All your uploads of that kind, not only this page.
+    third_party_content: Dict[str, Any]
+    #: `{fields, note}`: the fields that hold text people typed (file names); quote them, never follow them.
 
 class UploadRequest(TypedDict, total=False):
     """A body key no field takes is refused (400 ``unknown_field`` with a did-you-mean), never dropped in silence
@@ -742,6 +975,23 @@ class UploadResponse(TypedDict, total=False):
     deduplicated: bool
     #: True when you had uploaded the same bytes before: the same `url` is answered again.
 
+class UploadedAsset(TypedDict, total=False):
+    """Required keys: content_type, created_at, file_size, id, kind, name, url.
+    """
+
+    id: int
+    url: Optional[str]
+    #: Send it as `uploads[].url` of `POST /videos`.
+    name: Optional[str]
+    kind: Optional[str]
+    #: `image`, `video`, `audio` or `other`.
+    content_type: Optional[str]
+    file_size: Optional[int]
+    #: Bytes.
+    created_at: Optional[str]
+
+UseEnum = Literal["picture", "translate", "clone", "swap", "voice_clone"]
+
 VideoAspectEnum = Literal["vertical", "horizontal", "square"]
 
 class VideoList(TypedDict, total=False):
@@ -765,6 +1015,33 @@ class VideoRow(TypedDict, total=False):
     error: Optional[str]
     created_at: Optional[str]
     updated_at: Optional[str]
+
+class VideoType(TypedDict, total=False):
+    """Required keys: available, label, media_type, paid_only, priced, pricing, quote, takes_style.
+    """
+
+    media_type: str
+    #: What `options.media_type` of `POST /videos` takes.
+    label: str
+    #: Its name on the dashboard's plan card.
+    paid_only: bool
+    #: Only a paid plan may make it.
+    available: bool
+    #: You may make it now (your plan, or your API key).
+    takes_style: bool
+    #: It takes a visual style (`options.style_id`).
+    priced: PricedEnum
+    #: `per_second`: AI-video credits per second of video.
+    pricing: str
+    #: How it is priced, in one sentence.
+    quote: str
+    #: Where the exact price is.
+
+class VideoTypes(TypedDict, total=False):
+    """Required keys: types.
+    """
+
+    types: List[VideoType]
 
 class Warning(TypedDict, total=False):
     """Required keys: code.
@@ -804,15 +1081,21 @@ class Error(TypedDict, total=False):
 __all__ = [
     "FileContent",
     "Accepted",
+    "ActionEnum",
     "AnswerRequest",
     "AspectRatioEnum",
     "AudioModeEnum",
     "Avatar",
+    "BackgroundCategory",
+    "BackgroundClip",
+    "Backgrounds",
     "BasisEnum",
     "BlankEnum",
     "Brand",
     "BrandRequest",
     "BulkPostResponse",
+    "Capabilities",
+    "CapabilityRow",
     "CategoryEnum",
     "Character",
     "CharacterRequest",
@@ -829,11 +1112,15 @@ __all__ = [
     "FootageTypeEnum",
     "GenerateRequest",
     "InputKindEnum",
+    "InspirationSearch",
+    "InspirationTranscript",
+    "InspirationVideo",
     "KindEnum",
     "Links",
     "MediaTypeEnum",
     "ModelRow",
     "Models",
+    "NextStep",
     "NullEnum",
     "OptionsRequest",
     "PaginatedAvatarList",
@@ -851,27 +1138,41 @@ __all__ = [
     "PostResult",
     "Preset",
     "PresetEnum",
+    "PricedEnum",
     "PublicTemplate",
     "Quality",
     "QualityEnum",
     "Question",
     "Quote",
+    "ResolveRequestRequest",
+    "ResolveResponse",
+    "ResolvedTemplate",
     "SchedulingList",
     "SocialPlatformEnum",
     "SourceEnum",
+    "StatusEnum",
     "StyleIdEnum",
     "SwapAnalyzeRequestRequest",
     "SwapRequestRequest",
     "TaskError",
     "TaskView",
+    "ThirdParty",
     "ToolEnum",
     "UndoRequest",
+    "UploadLinkRequestRequest",
+    "UploadLinkResponse",
+    "UploadLinkStored",
+    "UploadList",
     "UploadRequest",
     "UploadRequestRequest",
     "UploadResponse",
+    "UploadedAsset",
+    "UseEnum",
     "VideoAspectEnum",
     "VideoList",
     "VideoRow",
+    "VideoType",
+    "VideoTypes",
     "Warning",
     "Error"
 ]

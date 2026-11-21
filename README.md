@@ -45,15 +45,29 @@ Pass `auto_generate=True` to plan and generate in one call; `wait_for_video` the
 
 Each operation of the [OpenAPI document](openapi/openapi.json) is a method named after its `operationId`:
 `create_video`, `get_video`, `list_videos`, `quote_video`, `generate_video`, `clone_video`, `translate_video`,
-`list_voices`, `list_templates`, `upload_file`, `create_webhook`, `get_account`, and the rest.
+`list_voices`, `list_templates`, `upload_file`, `create_upload_link`, `create_webhook`, `list_capabilities`,
+`get_account`, and the rest.
 
 - Path parameters are positional: `client.get_video("6f1c…")`.
 - Query parameters and body fields are keyword arguments: `client.create_video(brief="…", auto_generate=True)`.
 - Leave an argument out to not send it; pass `None` to send JSON `null`. Fields the SDK does not know yet go in
   `extra_body={...}`.
 - Answers are plain `dict`s, typed as `TypedDict`s in `zebracat.types` for your editor.
-- Files (`upload_file`, `create_clone_voice`) take bytes, an open binary file, or `(filename, bytes, content_type)`.
+- Files (`upload_file`, `create_clone_voice`, `upload_to_link`) take bytes, an open binary file, or
+  `(filename, bytes, content_type)`.
 - Operations the API marks deprecated still work and raise a `DeprecationWarning`.
+
+## Uploading a file
+
+`upload_file` takes a picture in one call. For a video to translate, clone or swap, or a voice sample, use a one-time
+upload link: `upload_with_link` asks for the link (`create_upload_link`) and sends the file to it.
+
+```python
+stored = client.upload_with_link("talk.mp4", use="translate")      # a local path, bytes or an open file
+video = client.translate_video(video_url=stored["url"], target_language="es")
+```
+
+`use` is `picture`, `translate`, `clone`, `swap` or `voice_clone`; it sets the accepted types and the size cap.
 
 ## Authentication
 
@@ -108,7 +122,7 @@ when nothing more happens on its own:
 
 | phase | what you do next |
 |---|---|
-| `completed` | `video["video_url"]` is the file; `download_video(task_id)` returns the URL as well |
+| `completed` | `video["video_url"]` is the file; `download_video_file(task_id)` returns the URL as well |
 | `plan_ready` | show `quote_video(task_id)`, then `generate_video(task_id)` and wait again |
 | `needs_input` | answer `video["question"]` with `answer_video_question(task_id, ...)` and wait again |
 

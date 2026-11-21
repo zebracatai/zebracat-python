@@ -10,8 +10,8 @@ import random
 import threading
 import time
 import uuid
-from typing import TYPE_CHECKING, Any, Callable, Dict, Mapping, Optional, Tuple, cast
-from urllib.parse import quote
+from typing import TYPE_CHECKING, Any, Callable, Dict, Mapping, Optional, Tuple, Union, cast
+from urllib.parse import quote, unquote, urlsplit
 
 import httpx
 
@@ -31,7 +31,7 @@ from ._types import NotGiven, Operation, RequestOptions
 from ._version import __version__
 
 if TYPE_CHECKING:
-    from ._generated.types import TaskView
+    from ._generated.types import FileContent, TaskView, UploadLinkStored
 
 DEFAULT_BASE_URL = "https://api.zebracat.ai"
 TOKEN_PATH = "/api/oauth/token"
@@ -155,6 +155,7 @@ class Zebracat(GeneratedOperations):
             headers["Idempotency-Key"] = idempotency_key or opts.get("idempotency_key") or f"zc-{uuid.uuid4().hex}"
         headers.update(opts.get("headers") or {})
         content = _encode_body(op, body)
+        headers.update(content.pop("headers", {}))
         max_retries = opts.get("max_retries", self.max_retries)
         timeout = opts.get("timeout", self.timeout)
 
@@ -167,7 +168,7 @@ class Zebracat(GeneratedOperations):
                     op.method,
                     url,
                     params=params,
-                    headers={**headers, **self._auth_headers()},
+                    headers={**headers, **(self._auth_headers() if op.auth else {})},
                     timeout=timeout,
                     **content,
                 )
@@ -185,7 +186,7 @@ class Zebracat(GeneratedOperations):
                     continue
                 raise APIConnectionError(f"{op.method} {op.path} failed: {exc}", request_id=request_id) from exc
 
-            if response.status_code == 401 and self.refresh_token and not refreshed:
+            if response.status_code == 401 and op.auth and self.refresh_token and not refreshed:
                 refreshed = True
                 self._refresh(sent_token)
                 continue
@@ -237,6 +238,46 @@ class Zebracat(GeneratedOperations):
                 self.on_token_refresh(body)
 
     # ------------------------------------------------------------------ helpers
+
+    def upload_with_link(
+        self,
+        file: Union[str, "os.PathLike[str]", "FileContent"],
+        *,
+        use: str = "picture",
+        filename: Optional[str] = None,
+        content_type: Optional[str] = None,
+        kind: Optional[str] = None,
+        name: Optional[str] = None,
+    ) -> "UploadLinkStored":
+        """Upload one file through a one-time upload link and return where it is stored.
+
+        ``file`` is a local path, bytes, an open binary file or ``(filename, content[, content_type])``. ``use``
+        picks the accepted types and caps (``picture``, ``translate``, ``clone``, ``swap``, ``voice_clone``); send
+        the answer's ``url`` to the call ``use`` names (a ``translate`` video goes in ``translate_video(video_url=…)``,
+        a picture's ``upload`` in ``create_video(uploads=[…])``). Two calls: ``create_upload_link``, then the file
+        goes to the link's ``upload_url`` without credentials (``upload_to_link``).
+        """
+        if isinstance(file, (str, os.PathLike)):
+            path = os.fspath(file)
+            with open(path, "rb") as handle:
+                data = handle.read()
+            part: Optional[Tuple[str, bytes, str]] = (
+                os.path.basename(path), data, content_type or "application/octet-stream"
+            )
+        else:
+            part = _file_part(file)
+            if part is None:
+                raise ZebracatError("file must be a path, bytes, an open binary file or (filename, content).")
+        filename = filename or (part[0] if part[0] != "upload" else None)
+        fields: Dict[str, Any] = {"use": use, "filename": filename, "content_type": content_type, "kind": kind, "name": name}
+        link = self.create_upload_link(**{k: v for k, v in fields.items() if v is not None})
+        upload_url = cast(Dict[str, Any], link)["upload_url"]
+        marker = "/uploads/link/"
+        link_path = urlsplit(upload_url).path
+        if marker not in link_path:
+            raise ZebracatError(f"Unexpected upload_url: {upload_url}")
+        token = unquote(link_path.split(marker, 1)[1])
+        return self.upload_to_link(token, body=part)
 
     def wait_for_video(
         self,
@@ -328,6 +369,11 @@ def _encode_body(op: Operation, body: Any) -> Dict[str, Any]:
     body = _strip_not_given(body)
     if body is None or isinstance(body, NotGiven):
         return {}
+    if op.body == "binary":
+        part = _file_part(body)
+        if part is None:
+            raise ZebracatError("body must be bytes, an open binary file or (filename, content[, content_type]).")
+        return {"content": part[1], "headers": {"Content-Type": part[2]}}
     if op.body != "multipart":
         return {"json": body}
     files: Dict[str, Tuple[str, bytes, str]] = {}
