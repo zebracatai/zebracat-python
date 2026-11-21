@@ -185,13 +185,16 @@ def resolve(spec: dict, schema: dict) -> dict:
 
 
 def body_info(spec: dict, op: dict):
-    """(kind, schema, required) of the request body; kind is ``json``, ``multipart`` or None."""
+    """(kind, schema, required) of the request body; kind is ``json``, ``multipart``, ``binary`` (the raw bytes of
+    one file) or None."""
     rb = op.get("requestBody")
     if not rb:
         return None, None, False
     content = rb["content"]
     first = next(iter(content))
     schema = content[first].get("schema", {})
+    if first == "application/octet-stream":
+        return "binary", schema, bool(rb.get("required"))
     props = resolve(spec, schema).get("properties", {})
     has_file = any(resolve(spec, p).get("format") == "binary" for p in props.values())
     if first == "multipart/form-data" and (has_file or "application/json" not in content):
@@ -244,10 +247,12 @@ def gen_operations(spec: dict) -> tuple[str, list[str]]:
             paid = method == "post" and ("402" in op.get("responses", {}) or op_id in EXTRA_PAID)
             replays = op_id in REPLAYS_IDEMPOTENCY_KEY
             deprecated = bool(op.get("deprecated"))
+            # An operation without ``security`` takes no credentials (a public catalogue, an upload link).
+            auth = bool(op.get("security", spec.get("security")))
             table.append(
                 f"    {json.dumps(op_id)}: Operation({json.dumps(op_id)}, {json.dumps(method.upper())}, "
                 f"{json.dumps(path)}, body={json.dumps(kind) if kind else None}, paid={paid}, "
-                f"replays_idempotency_key={replays}, deprecated={deprecated}),"
+                f"replays_idempotency_key={replays}, deprecated={deprecated}, auth={auth}),"
             )
             params = item.get("parameters", []) + op.get("parameters", [])
             path_params = [p for p in params if p["in"] == "path"]

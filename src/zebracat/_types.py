@@ -13,13 +13,15 @@ class Operation:
     operation_id: str
     method: str
     path: str
-    #: ``"json"``, ``"multipart"`` or ``None`` (no request body).
+    #: ``"json"``, ``"multipart"``, ``"binary"`` (the raw bytes of one file) or ``None`` (no request body).
     body: Optional[str] = None
     #: A POST that spends money: it carries an ``Idempotency-Key``.
     paid: bool = False
     #: The server answers a repeated ``Idempotency-Key`` with the first answer, so a 5xx may be retried.
     replays_idempotency_key: bool = False
     deprecated: bool = False
+    #: Sends the API key or access token. False for an operation the API serves without credentials.
+    auth: bool = True
 
 
 class NotGiven:

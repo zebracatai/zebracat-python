@@ -274,8 +274,38 @@ def test_wait_for_video_poll_interval_overrides(stub, client, fake_time):
 
 
 def test_download_returns_the_redirect_location(stub, client):
-    stub.on("GET", f"{API}/video/{TASK}/download", Reply(302, None, {"Location": "https://cdn/v.mp4"}))
-    assert client.download_video(TASK) == "https://cdn/v.mp4"
+    stub.on("GET", f"{API}/videos/{TASK}/download", Reply(302, None, {"Location": "https://cdn/v.mp4"}))
+    assert client.download_video_file(TASK) == "https://cdn/v.mp4"
+
+
+def test_upload_with_link_sends_a_local_file_without_credentials(stub, client, tmp_path):
+    token = "Tq3:1v4:Zx"
+    stub.on("POST", f"{API}/uploads/link", Reply(201, {
+        "upload_url": f"https://api.zebracat.ai{API}/uploads/link/{token}",
+        "method": "PUT",
+        "url": "https://cdata.zebracat.ai/api-uploads/video/5b0e41.mp4",
+        "use": "translate",
+    }))
+    stored = {"url": "https://cdata.zebracat.ai/api-uploads/video/5b0e41.mp4", "use": "translate",
+              "content_type": "video/mp4", "size": 9, "seconds": 1.5, "name": "talk.mp4"}
+    stub.on("PUT", f"{API}/uploads/link/Tq3%3A1v4%3AZx", Reply(201, stored))
+    path = tmp_path / "talk.mp4"
+    path.write_bytes(b"\x00\x00\x00 ftypmp4")
+
+    assert client.upload_with_link(str(path), use="translate") == stored
+
+    link, put = stub.calls()
+    assert link.json() == {"use": "translate", "filename": "talk.mp4"}
+    assert link.headers["x-api-key"] == "sk-test"
+    assert put.method == "PUT" and put.body == path.read_bytes()
+    assert put.headers["content-type"] == "application/octet-stream"
+    assert "x-api-key" not in put.headers and "authorization" not in put.headers
+
+
+def test_operation_without_security_sends_no_credentials(stub, client):
+    stub.on("GET", f"{API}/capabilities", Reply(200, {"capabilities": []}))
+    client.list_capabilities()
+    assert "x-api-key" not in stub.calls()[0].headers
 
 
 def test_delete_answers_none(stub, client):
